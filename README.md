@@ -28,4 +28,4 @@ Our final model achieved an **RMSE of 0.0378** on the out-of-sample test set, th
 
 ## Acknowledgements
 A huge thank you to **Dr. Justin Smith** for organizing and running the competition — it a fun and challenging competition!
----
+
