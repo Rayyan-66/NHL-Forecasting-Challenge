@@ -1,0 +1,138 @@
+---
+title: "glmboost"
+author: "Rayyan Ali"
+date: "2026-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+# NHL Win Percentage Forecasting – GLM Boosting (mboost)
+
+library(mboost)
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(Metrics)
+
+set.seed(123)
+
+#1. Data
+nhl.data  <- read.csv("train.csv",  stringsAsFactors = FALSE)
+eval.data  <- read.csv("eval.csv",  stringsAsFactors = FALSE)
+
+#2. Feature Engineering
+drop_cols <- c("team", "season", "winperc")
+
+add_features <- function(df) {
+  df <- df %>%
+    mutate(
+      gd_ratio_lag1   = ifelse(ga_lag1 > 0, gf_lag1 / ga_lag1, NA), #
+      xg_diff_lag1    = x_gf_lag1 - x_ga_lag1,
+      hd_eff_lag1     = ifelse(hdsf_lag1 > 0, hdgf_lag1 / hdsf_lag1, NA),
+      pdo_diff        = pdo_lag1 - pdo_avg3,
+      sc_dom_lag1     = scf_p_lag1 - 50,
+      sc_dom_avg3     = scf_p_avg3 - 50,
+      win_momentum    = winperc_lag1 - winperc_avg3
+    )
+  return(df)
+}
+
+nhl.data  <- add_features(nhl.data)
+eval.data  <- add_features(eval.data)
+
+new_cols     <- c("gd_ratio_lag1", "xg_diff_lag1", "hd_eff_lag1",
+                  "pdo_diff", "sc_dom_lag1", "sc_dom_avg3", "win_momentum")
+feature_cols <- c(feature_cols, new_cols)
+
+#3. Data Cleaning
+X_train <- nhl.data[, feature_cols]
+y_train <- nhl.data$winperc
+
+X_eval  <- eval.data[, feature_cols]
+
+impute_medians <- function(train_df, new_df) {
+  meds <- sapply(train_df, function(x) median(x, na.rm = TRUE))
+  for (col in names(train_df)) {
+    bad <- is.na(train_df[[col]]) | is.infinite(train_df[[col]])
+    train_df[[col]][bad] <- meds[col]
+    bad2 <- is.na(new_df[[col]]) | is.infinite(new_df[[col]])
+    new_df[[col]][bad2] <- meds[col]
+  }
+  list(train = train_df, new = new_df)
+}
+
+imputed    <- impute_medians(X_train, X_eval)
+X_train    <- imputed$train
+X_eval     <- imputed$new
+
+#4. Selecting our variables 
+boost_init <- glmboost(
+  x     = as.matrix(X_train),
+  y     = y_train,
+  family = Gaussian(),
+  control = boost_control(
+    mstop   = 500,
+    nu      = 0.05,
+    trace   = FALSE
+  )
+)
+
+cv_risk <- cvrisk(
+  boost_init,
+  folds  = cv(model.weights(boost_init), type = "kfold", B = 10),
+  papply = lapply
+)
+
+best_mstop <- mstop(cv_risk)
+
+#5. Optimal model
+
+boost_final <- glmboost(
+  x       = as.matrix(X_train),
+  y       = y_train,
+  family  = Gaussian(),
+  control = boost_control(
+    mstop = best_mstop,
+    nu    = 0.05,
+    trace = FALSE
+  )
+)
+
+#6. In-sample performance
+y_hat_train <- predict(boost_final, newdata = as.matrix(X_train))
+
+train_rmse <- rmse(y_train, y_hat_train)
+train_mae  <- mae( y_train, y_hat_train)
+train_r2   <- cor(y_train, y_hat_train)^2
+
+#7. Variable importance (absolute coefficients)
+coef_vec  <- coef(boost_final, which = "")
+coef_df   <- data.frame(
+  feature    = names(coef_vec[-1]),   # drop intercept
+  importance = abs(coef_vec[-1])
+) %>%
+  filter(importance > 0) %>%
+  arrange(desc(importance))
+
+print(head(coef_df, 15))
+
+#8. Predict on eval set
+y_hat_eval <- as.numeric(predict(boost_final, newdata = as.matrix(X_eval)))
+
+eval.data$pred_winperc <- y_hat_eval
+
+eval.data$pred_winperc <- pmin(pmax(eval.data$pred_winperc, 0), 1)
+
+cat("\n--- Eval Set Predictions (all rows) ---\n")
+print(eval.data[, c("team", "season", "pred_winperc")] %>% arrange(desc(pred_winperc)))
+
+#9. Save outputs
+write.csv(
+  eval.data[, c("team", "pred_winperc")],
+  file      = "Final Output",
+  row.names = FALSE
+)
+```
