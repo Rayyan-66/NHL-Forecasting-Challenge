@@ -4,8 +4,6 @@
 The **2026 SMITH Competition** ([Students Mastering Intriguing Testable Hypotheses](https://www.wlu.ca/academics/faculties/lazaridis-school-of-business-and-economics/student-experience/case-competitions.html#SMITH)) challenged us to forecast the win percentages of every NHL team in the 2024-2025 season. We were provided a dataset of **145 variables** spanning across **10 seasons**.
 
 > Our model took **1st place** out of 7 competing teams, giving us the win for our year (3rd).
-
-We have posted the code for it here, along side a small explanation.
 ---
 
 ## Methodology
